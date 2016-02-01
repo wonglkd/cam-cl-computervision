@@ -12,19 +12,18 @@ def basic_convolution(image, kernel, verbose=False):
 
   # Allocate memory for result.
   result = np.zeros_like(image)
-  
+
   # Image and kernel dimensions.
   (iend, jend) = image.shape
   (mend, nend) = kernel.shape
-  
+
   # Iterate over all pixels in the image
   for i in range(mend - 1, iend):
     for j in range(nend - 1, jend):
-        ## TODO
         ## Implement convolution here
-        result[i][j] = 0
+        result[i][j] = sum(kernel[m][n] * image[i-m][j-n]
+                           for m in xrange(mend) for n in xrange(nend))
     if verbose: print "basic_convolution: Filtering row %3i of %i ..." % (i + 1, iend)
-  
   return result
 
 
@@ -32,47 +31,73 @@ def basic_convolution(image, kernel, verbose=False):
 def padded_convolution(image, kernel, verbose=False):
   'Computes the convolution of an image with a kernel, with clamp-to-edge.'
 
-  ## TODO
   ## Enlarge the image so that there is information in the previously invalid areas
-  
+  mend, nend = kernel.shape
+  img = cv2.copyMakeBorder(image, mend, mend, nend, nend, cv2.BORDER_WRAP)
+
   ## Perform a convolution on this image
-  
+  result = np.zeros_like(img)
+  iend, jend = img.shape
+
+  for i in range(mend - 1, iend):
+    for j in range(nend - 1, jend):
+      result[i][j] = sum(kernel[m][n] * img[i-m][j-n]
+                         for m in xrange(mend) for n in xrange(nend))
+    if verbose: print "padded_convolution: Filtering row %3i of %i ..." % (i + 1, iend)
+
   ## Return the centred result
-  
-  return np.zeros(image.shape, 'float')
+  return result[mend*1.5:-mend/2, nend*1.5:-nend/2]
 
 
 ## Exercise 1.3
 def basic_convolution_dft(image, kernel, verbose=False):
   'Computes the convolution of an image with a kernel using a basic DFT-based approach.'
-   
+
   output = np.zeros(image.shape, 'float')
-  
-  ## TODO
+
   ## Implementation of convolution theorem
-  
+  k_rows, k_cols = kernel.shape
+  kernel_ext = np.zeros_like(image)
+  kernel_ext[:k_rows,:k_cols] = kernel
+
+  # TODO: Fix - buggy.
+  # ft_img, ft_kernel = cv2.dft(image, flags=cv2.DFT_SCALE), cv2.dft(kernel_ext, flags=cv2.DFT_SCALE)
+  # convolved = cv2.mulSpectrums(ft_img, ft_kernel, 0, conjB=False)
+  # output = cv2.idft(convolved, flags=cv2.DFT_SCALE)
+
+  ft_img, ft_kernel = np.fft.fft2(image), np.fft.fft2(kernel_ext)
+  output = np.fft.ifft2(np.multiply(ft_img, ft_kernel))
+  output = np.abs(output)
+
   ## Return the result.
   if output.dtype == np.complex128:
     raise Exception("Output image is complex valued.")
   return output
-  
+
 
 ## Exercise 1.4
 def padded_convolution_dft(image, kernel, verbose=False):
   'Computes the convolution of an image with a kernel using a DFT-based approach (clamp-to-edge).'
-    
+
   output = np.zeros(image.shape, 'float')
-  
-  ## TODO
+
   ## Implementation of convolution theorem with padding
-  
+  k_rows, k_cols = kernel.shape
+  mend, nend = kernel.shape
+  img = cv2.copyMakeBorder(image, mend, mend, nend, nend, cv2.BORDER_WRAP)
+  kernel_ext = np.zeros_like(img)
+  kernel_ext[:k_rows,:k_cols] = kernel
+  ft_img, ft_kernel = np.fft.fft2(img), np.fft.fft2(kernel_ext)
+  output = np.fft.ifft2(np.multiply(ft_img, ft_kernel))
+  output = np.abs(output)[mend*1.5:-mend/2, nend*1.5:-nend/2]
+
   ## Return the result.
   if output.dtype == np.complex128:
     raise Exception("Output image is complex valued.")
   return output
-  
-  
-  
+
+
+
 ## ---------------------------------------------------------------------
 
 def show(name, im):
@@ -81,7 +106,7 @@ def show(name, im):
   cv2.namedWindow(name)
   cv2.imshow(name, im)
   cv2.waitKey(1)
-  
+
 def are_similar(image, answer):
   if image.shape != answer.shape:
     return False
@@ -97,17 +122,17 @@ def are_similar(image, answer):
 if __name__ == '__main__':
 
   verbose = True
-  
+
   ## Start background thread for event handling of windows.
   if verbose:
     cv2.namedWindow("image")
     cv2.startWindowThread()
-  
+
   ## Read in example image (greyscale, float, half-size).
   image = cv2.imread("input/mandrill.png", 0) / 255.0
   image = cv2.resize(image, (256, 256))
   if verbose: show("image", image)
-  
+
   ## Prepare small convolution kernel (good for naive convolution).
   kernel = np.array([[0,0,0,0,5,5,5,5,5,5],
                      [0,0,0,5,1,1,1,1,1,5],
@@ -120,14 +145,14 @@ if __name__ == '__main__':
                      [0,0,0,5,1,1,1,1,1,5],
                      [0,0,0,0,5,5,5,5,5,5]], dtype=float)
   kernel = kernel / kernel.sum() # normalise kernel
-  
+
   ## Prepare large convolution kernel (good for DFT-based convolution).
   #sigma = 10
   #gauss = cv2.getGaussianKernel(2 * 3 * sigma + 1, sigma)
   #kernel = np.outer(gauss, gauss)
 
   if verbose: print "kernel = %i x %i" % kernel.shape
-  
+
   result1 = basic_convolution(image, kernel, verbose=verbose)
   if verbose: show("Result 1 (basic)", result1)
   result2 = padded_convolution(image, kernel, verbose=verbose)
@@ -136,16 +161,16 @@ if __name__ == '__main__':
   if verbose: show("Result 3 (basic DFT)", result3)
   result4 = padded_convolution_dft(image, kernel, verbose=verbose)
   if verbose: show("Result 4 (padded DFT)", result4)
-  
+
   ## Save images to disk for comparison.
   cv2.imwrite(os.path.expanduser("image-input.png"), np.uint8(255 * image))
   cv2.imwrite(os.path.expanduser("image-basic_convolution.png"), np.uint8(255 * result1))
   cv2.imwrite(os.path.expanduser("image-padded_convolution.png"), np.uint8(255 * result2))
   cv2.imwrite(os.path.expanduser("image-basic_convolution-dft.png"), np.uint8(255 * result3))
   cv2.imwrite(os.path.expanduser("image-padded_convolution-dft.png"), np.uint8(255 * result4))
-  
+
   ## Check the answers
-  
+
   result1_correct = cv2.imread(os.path.expanduser("answer-images/image-basic_convolution.png"), 0) / 255.0
   if are_similar(result1, result1_correct):
     print "Exercise 1.1: CORRECT"
@@ -155,7 +180,7 @@ if __name__ == '__main__':
       print "    Result is all zeros."
     if result1.shape != result1_correct.shape:
       print "    The size is incorrect. The result should be the same size as the input"
-      
+
   result2_correct = cv2.imread(os.path.expanduser("answer-images/image-padded_convolution.png"), 0) / 255.0
   if are_similar(result2, result2_correct):
     print "Exercise 1.2: CORRECT"
@@ -165,7 +190,7 @@ if __name__ == '__main__':
       print "    Result is all zeros."
     if result2.shape != result2_correct.shape:
       print "    The size is incorrect. The result should be the same size as the input"
-      
+
   result3_correct = cv2.imread(os.path.expanduser("answer-images/image-basic_convolution-dft.png"), 0) / 255.0
   if are_similar(result3, result3_correct):
     print "Exercise 1.3: CORRECT"
@@ -173,7 +198,7 @@ if __name__ == '__main__':
     print "Exercise 1.3: INCORRECT"
     if result3.shape != result3_correct.shape:
       print "    The size is incorrect. The result should be the same size as the input"
-      
+
   result4_correct = cv2.imread(os.path.expanduser("answer-images/image-padded_convolution-dft.png"), 0) / 255.0
   if are_similar(result4, result4_correct):
     print "Exercise 1.4: CORRECT"
@@ -181,11 +206,11 @@ if __name__ == '__main__':
     print "Exercise 1.4: INCORRECT"
     if result4.shape != result4_correct.shape:
       print "    The size is incorrect. The result should be the same size as the input"
-      
-  
+
+
   ## wait for keyboard input or windows to close
   if verbose:
-    import sys, select 
+    import sys, select
     print "Press enter or any key on one of the images to exit"
     while True:
       if cv2.waitKey(100) != -1:
@@ -194,4 +219,4 @@ if __name__ == '__main__':
       i, o, e = select.select( [sys.stdin], [], [], 0.1 )
       if i:
         break
-       
+
